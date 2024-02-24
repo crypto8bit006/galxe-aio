@@ -22,7 +22,6 @@
  - Gas-less OATs
  - Gas OATs and NFTs
 
-### Follow: https://t.me/thelaziestcoder
 
 ### Settings
  - `files/evm_wallets.txt` - Wallets with EVM private keys
@@ -63,8 +62,3 @@ Run twitter checker: \
 `results/` - Folder with results of run \
 `logs/` - Folder with logs of run \
 `storage/` - Local database
-
-### Donate :)
-
-TRC-20 - `TX7yeJVHwhNsNy4ksF1pFRFnunF1aFRmet` \
-ERC-20 - `0x5aa3c82045f944f5afa477d3a1d0be3c96196319`
