@@ -231,12 +231,15 @@ class GalxeAccount:
                 logger.info(f'{self.idx}) Another Discord account already linked with this EVM address: '
                             f'{existed_discord_username}')
 
+        discord_auth_link = await self.client.get_social_auth_url()
+        state = get_query_param(discord_auth_link, 'state')
+
         params = {
             'client_id': GALXE_DISCORD_CLIENT_ID,
             'response_type': 'code',
             'redirect_uri': 'https://galxe.com',
             'scope': 'identify guilds guilds.members.read',
-            'state': f'Discord_Auth,{self.account.evm_address},false',
+            'state': f'Discord_Auth,{self.account.evm_address},false,{state}',
         }
         body = {
             'permissions': '0',
@@ -249,8 +252,8 @@ class GalxeAccount:
                                               params=params, json=body,
                                               headers={'Authorization': self.account.discord_token})
             token = get_query_param(location, 'code')
-            await self.client.check_discord_account(token)
-            await self.client.verify_discord_account(token)
+            await self.client.check_discord_account(state, token)
+            await self.client.verify_discord_account(state, token)
         except Exception as e:
             if token is None:
                 self.account.discord_error = True
@@ -339,11 +342,34 @@ class GalxeAccount:
             except Exception as e:
                 logger.warning(f'{self.idx}) Campaign require email: {str(e)}')
 
+        if campaign['taskConfig'] and campaign['taskConfig'].get('participateCondition') is not None:
+            logger.info(f'{self.idx}) Completing requirements')
+            for i in range(max(VERIFY_TRIES, MAX_TRIES)):
+                if i > 0:
+                    logger.info(f'{self.idx}) Waiting for 30s to retry')
+                    await asyncio.sleep(31)
+                    campaign = await self.client.get_campaign_info(campaign['id'])
+                conditions = campaign['taskConfig']['participateCondition']['conditions']
+                credentials = [c['cred'] for c in conditions]
+                conditions = [{'eligible': c['eligible']} for c in conditions]
+                cred_group = {'conditions': conditions, 'credentials': credentials}
+                need_retry = await self._complete_cred_group(campaign['id'], cred_group)
+                await wait_a_bit(2)
+                if not need_retry:
+                    break
+            await wait_a_bit(5)
+            if await self.verify_all_credentials(campaign):
+                campaign = await self.client.get_campaign_info(campaign['id'])
+            await asyncio.sleep(5)
+
+        logger.info(f'{self.idx}) Completing main tasks')
+
         for i in range(max(VERIFY_TRIES, MAX_TRIES)):
 
             if i > 0:
                 logger.info(f'{self.idx}) Waiting for 30s to retry')
                 await asyncio.sleep(31)
+                campaign = await self.client.get_campaign_info(campaign['id'])
 
             try_again = False
             for group_id in range(len(campaign['credentialGroups'])):
@@ -355,8 +381,6 @@ class GalxeAccount:
 
             if not try_again:
                 break
-
-            campaign = await self.client.get_campaign_info(campaign['id'])
 
     async def _complete_cred_group(self, campaign_id: str, cred_group) -> bool:
         try_again = False
@@ -575,6 +599,9 @@ class GalxeAccount:
         cred_ids = []
         for cred_group in campaign['credentialGroups']:
             cred_ids.extend([cred['id'] for cred in cred_group['credentials'] if cred['eligible'] == 0])
+        if campaign['taskConfig'] and campaign['taskConfig'].get('participateCondition') is not None:
+            conditions = campaign['taskConfig']['participateCondition']['conditions']
+            cred_ids.extend([c['cred']['id'] for c in conditions])
         if len(cred_ids) == 0:
             return False
         await self.client.verify_credentials(cred_ids)
